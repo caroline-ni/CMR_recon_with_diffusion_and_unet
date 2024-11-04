@@ -1,11 +1,11 @@
-k_space = load('cine_lax_ks.mat');
-centered_kspace = load('cine_lax_calib.mat');
-k_space = k_space.Recon_ks;
-centered = centered_kspace.Calib; 
+k_space = load('C:\Users\carol\Desktop\UGthesis_cMRIrecon\unsupervised_MRIrecon\matlab_scripts\new_fs_ocmr\fs_0001_1_5T.mat');
+% centered_kspace = load('cine_lax_calib.mat');
+% k_space = k_space.Recon_ks;
+% centered = centered_kspace.Calib; 
 %%
-
+k_space = k_space.kData;
 sz = size(k_space);
-kx_ky = k_space(:,:,1, 1, 1); % kx and ky and slice numbers 
+kx_ky = k_space(:,:,:, 1, 1); % kx and ky and slice numbers 
 imagesc(abs(kx_ky))
 
  %%

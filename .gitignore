@@ -4,3 +4,8 @@
 DemoData/
 MRAugment/ 
 matlab_scripts/P001/
+matlab_scripts/OCMR_data/
+matlab_scripts/fs/
+matlab_scripts/new_fs_ocmr/
+matlab_scripts/new_us_ocmr/
+ismrmrd/

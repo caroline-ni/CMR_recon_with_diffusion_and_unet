@@ -6,6 +6,7 @@ from typing import Dict, Optional, Sequence, Tuple, Union
 import fastmri
 import numpy as np
 import torch
+import scipy.io as sio 
 
 from fastmri.data.subsample import MaskFunc
 from fastmri.data.transforms import to_tensor, apply_mask
@@ -63,7 +64,7 @@ class VarNetDataTransform:
                 crop_size: The size to crop the final image.
         """
         # Make sure data types match
-        kspace = kspace.astype(np.complex64)
+        kspace = kspace.astype(np.complex128)
         target = target.astype(np.float32)
         
         if target is not None:
@@ -120,3 +121,5 @@ class VarNetDataTransform:
         if self.use_augment:
             if self.augmentor.aug_on:
                 self.augmentor.augmentation_pipeline.rng.seed(seed)
+
+

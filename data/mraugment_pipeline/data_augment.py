@@ -4,13 +4,13 @@ For example usage on the fastMRI and Stanford MRI datasets check out the scripts
 in mraugment_examples.
 
 Code adapted from https://github.com/z-fabian/MRAugment/mraugment
-    - made changes to adapted temporal dimension of 
+    - made changes to adapted temporal dimension of cardiac data
 """
 import numpy as np
 from math import exp
 import torch
 import torchvision.transforms.functional as TF
-from mraugment.helpers import complex_crop_if_needed, crop_if_needed, complex_channel_first, complex_channel_last
+from helpers import complex_crop_if_needed, crop_if_needed, complex_channel_first, complex_channel_last
 from fastmri.data import transforms as T
 from fastmri import fft2c, ifft2c, rss_complex, complex_abs
 
@@ -40,100 +40,104 @@ class AugmentationPipeline:
 
     def augment_image(self, im, max_output_size=None):
         # Trailing dims must be image height and width (for torchvision) 
-        im = complex_channel_first(im)
-        
-        # ---------------------------  
-        # pixel preserving transforms
-        # ---------------------------  
-        # Horizontal flip
-        if self.random_apply('fliph'):
-            im = TF.hflip(im)
+        # im = complex_channel_first(im)
+        im = im.permute(2, 3, 4, 0, 1)
 
-        # Vertical flip 
-        if self.random_apply('flipv'):
-            im = TF.vflip(im)
+        for coil in range(im.shape[0]):
+                    for phase in range(im.shape[1]):
+                        for slice_idx in range(im.shape[2]):
+                            img_slice = im[coil, phase, slice_idx]
+                            # ---------------------------  
+                            # pixel preserving transforms
+                            # ---------------------------  
+                            # Horizontal flip
+                            if self.random_apply('fliph'):
+                                im = TF.hflip(im)
 
-        # Rotation by multiples of 90 deg 
-        if self.random_apply('rot90'):
-            k = self.rng.randint(1, 4)  
-            im = torch.rot90(im, k, dims=[-2, -1])
+                            # Vertical flip 
+                            if self.random_apply('flipv'):
+                                im = TF.vflip(im)
 
-        # Translation by integer number of pixels
-        if self.random_apply('translation'):
-            h, w = im.shape[-2:]
-            t_x = self.rng.uniform(-self.hparams.aug_max_translation_x, self.hparams.aug_max_translation_x)
-            t_x = int(t_x * h)
-            t_y = self.rng.uniform(-self.hparams.aug_max_translation_y, self.hparams.aug_max_translation_y)
-            t_y = int(t_y * w)
-            
-            pad, top, left = self._get_translate_padding_and_crop(im, (t_x, t_y))
-            im = TF.pad(im, padding=pad, padding_mode='reflect')
-            im = TF.crop(im, top, left, h, w)
+                            # Rotation by multiples of 90 deg 
+                            if self.random_apply('rot90'):
+                                k = self.rng.randint(1, 4)  
+                                im = torch.rot90(im, k, dims=[-2, -1])
 
-        # ------------------------       
-        # interpolating transforms
-        # ------------------------  
-        interp = False 
+                            # Translation by integer number of pixels
+                            if self.random_apply('translation'):
+                                h, w = im.shape[-2:]
+                                t_x = self.rng.uniform(-self.hparams.aug_max_translation_x, self.hparams.aug_max_translation_x)
+                                t_x = int(t_x * h)
+                                t_y = self.rng.uniform(-self.hparams.aug_max_translation_y, self.hparams.aug_max_translation_y)
+                                t_y = int(t_y * w)
+                                
+                                pad, top, left = self._get_translate_padding_and_crop(im, (t_x, t_y))
+                                im = TF.pad(im, padding=pad, padding_mode='reflect')
+                                im = TF.crop(im, top, left, h, w)
 
-        # Rotation
-        if self.random_apply('rotation'):
-            interp = True
-            rot = self.rng.uniform(-self.hparams.aug_max_rotation, self.hparams.aug_max_rotation)
-        else:
-            rot = 0.
+                            # ------------------------       
+                            # interpolating transforms
+                            # ------------------------  
+                            interp = False 
 
-        # Shearing
-        if self.random_apply('shearing'):
-            interp = True
-            shear_x = self.rng.uniform(-self.hparams.aug_max_shearing_x, self.hparams.aug_max_shearing_x)
-            shear_y = self.rng.uniform(-self.hparams.aug_max_shearing_y, self.hparams.aug_max_shearing_y)
-        else:
-            shear_x, shear_y = 0., 0.
+                            # Rotation
+                            if self.random_apply('rotation'):
+                                interp = True
+                                rot = self.rng.uniform(-self.hparams.aug_max_rotation, self.hparams.aug_max_rotation)
+                            else:
+                                rot = 0.
 
-        # Scaling
-        if self.random_apply('scaling'):
-            interp = True
-            scale = self.rng.uniform(1-self.hparams.aug_max_scaling, 1 + self.hparams.aug_max_scaling)
-        else:
-            scale = 1.
+                            # Shearing
+                            if self.random_apply('shearing'):
+                                interp = True
+                                shear_x = self.rng.uniform(-self.hparams.aug_max_shearing_x, self.hparams.aug_max_shearing_x)
+                                shear_y = self.rng.uniform(-self.hparams.aug_max_shearing_y, self.hparams.aug_max_shearing_y)
+                            else:
+                                shear_x, shear_y = 0., 0.
 
-        # Upsample if needed
-        upsample = interp and self.upsample_augment
-        if upsample:
-            upsampled_shape = [im.shape[-2] * self.upsample_factor, im.shape[-1] * self.upsample_factor]
-            original_shape = im.shape[-2:]
-            interpolation  = TF.InterpolationMode.BICUBIC if self.upsample_order == 3 else TF.InterpolationMode.BILINEAR
-            im = TF.resize(im, size=upsampled_shape, interpolation=interpolation)
+                            # Scaling
+                            if self.random_apply('scaling'):
+                                interp = True
+                                scale = self.rng.uniform(1-self.hparams.aug_max_scaling, 1 + self.hparams.aug_max_scaling)
+                            else:
+                                scale = 1.
 
-        # Apply interpolating transformations 
-        # Affine transform - if any of the affine transforms is randomly picked
-        if interp:
-            h, w = im.shape[-2:]
-            pad = self._get_affine_padding_size(im, rot, scale, (shear_x, shear_y))
-            im = TF.pad(im, padding=pad, padding_mode='reflect')
-            im = TF.affine(im,
-                           angle=rot,
-                           scale=scale,
-                           shear=(shear_x, shear_y),
-                           translate=[0, 0],
-                           interpolation=TF.InterpolationMode.BILINEAR
-                          )
-            im = TF.center_crop(im, (h, w))
-        
-        # ---------------------------------------------------------------------
-        # Apply additional interpolating augmentations here before downsampling
-        # ---------------------------------------------------------------------
-        
-        # Downsampling
-        if upsample:
-            im = TF.resize(im, size=original_shape, interpolation=interpolation)
-        
-        # Final cropping if augmented image is too large
-        if max_output_size is not None:
-            im = crop_if_needed(im, max_output_size)
-            
+                            # Upsample if needed
+                            upsample = interp and self.upsample_augment
+                            if upsample:
+                                upsampled_shape = [im.shape[-2] * self.upsample_factor, im.shape[-1] * self.upsample_factor]
+                                original_shape = im.shape[-2:]
+                                interpolation  = TF.InterpolationMode.BICUBIC if self.upsample_order == 3 else TF.InterpolationMode.BILINEAR
+                                im = TF.resize(im, size=upsampled_shape, interpolation=interpolation)
+
+                            # Apply interpolating transformations 
+                            # Affine transform - if any of the affine transforms is randomly picked
+                            if interp:
+                                h, w = im.shape[-2:]
+                                pad = self._get_affine_padding_size(im, rot, scale, (shear_x, shear_y))
+                                im = TF.pad(im, padding=pad, padding_mode='reflect')
+                                im = TF.affine(im,
+                                            angle=rot,
+                                            scale=scale,
+                                            shear=(shear_x, shear_y),
+                                            translate=[0, 0],
+                                            interpolation=TF.InterpolationMode.BILINEAR
+                                            )
+                                im = TF.center_crop(im, (h, w))
+                            
+                            # Downsampling
+                            if upsample:
+                                im = TF.resize(im, size=original_shape, interpolation=interpolation)
+
+                            # Update the image with the augmented slice
+                            im[coil, phase, slice_idx] = img_slice
+
+                            if max_output_size is not None:
+                                im = crop_if_needed(im, max_output_size)
+                    
         # Reset original channel ordering
-        im = complex_channel_last(im)
+        #im = complex_channel_last(im)
+        im = im.permute(3, 4, 0, 1, 2)
         
         return im
     
@@ -149,13 +153,15 @@ class AugmentationPipeline:
         cropped_size = [min(im.shape[-3], target_size[0]), 
                         min(im.shape[-2], target_size[1])]
         
-        if len(im.shape) == 3: 
-            # Single-coil
-            target = complex_abs(T.complex_center_crop(im, cropped_size))
+        if len(im.shape) == 5: 
+            # multi-coil
+            # target = complex_abs(T.complex_center_crop(im, cropped_size)) #single coil
+            target = T.center_crop(rss_complex(im), cropped_size)
         else:
             # Multi-coil
-            assert len(im.shape) == 4
-            target = T.center_crop(rss_complex(im), cropped_size)
+            raise ValueError("Expected a 5D tensor for multi-coil data.")
+            # assert len(im.shape) == 4
+            # target = T.center_crop(rss_complex(im), cropped_size)
         return target  
             
     def random_apply(self, transform_name):

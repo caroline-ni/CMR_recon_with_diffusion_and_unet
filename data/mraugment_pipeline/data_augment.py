@@ -158,7 +158,6 @@ class AugmentationPipeline:
             # target = complex_abs(T.complex_center_crop(im, cropped_size)) #single coil
             target = T.center_crop(rss_complex(im), cropped_size)
         else:
-            # Multi-coil
             raise ValueError("Expected a 5D tensor for multi-coil data.")
             # assert len(im.shape) == 4
             # target = T.center_crop(rss_complex(im), cropped_size)

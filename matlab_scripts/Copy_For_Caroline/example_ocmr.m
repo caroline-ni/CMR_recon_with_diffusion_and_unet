@@ -35,9 +35,6 @@ for k = 1:size(cellstr(fileName),2)
     dim_average = 9;
     kData = sum(kData,dim_average)/size(kData,dim_average);
     RO = size(kData,1); CH = size(kData,4); SLC = size(kData,7); dims_phase = 5; dims_set = 6;
-    
-    %% Loop over
-
 
     %% Show the sampling pattern of a slice
     slc_idx = 6; %CHANGE ME!

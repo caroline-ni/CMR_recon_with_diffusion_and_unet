@@ -50,30 +50,20 @@ colormap('gray');
 colorbar;
 title(sprintf('Reconstructed Image from Coil %d', coil_number));
 %% 
-% Load the k-space data
-matData = load('C:\Users\carol\Desktop\UGthesis_cMRIrecon\unsupervised_MRIrecon\matlab_scripts\new_fs_ocmr\fs_0009_1_5T.mat');
+%% % Access the k-space data
+matData = load('C:\Users\carol\Desktop\UGthesis_cMRIrecon\unsupervised_MRIrecon\matlab_scripts\new_fs_ocmr\fs_0001_1_5T.mat');
 kspace_data = matData.kData;  % Replace 'kData' with the actual key if different
 
 % Choose a specific time frame and slice (e.g., time=1, slice=1)
 time_frame = 1;
 slice_number = 1;
-kspace_combine_coil = kspace_data(:, :, :, :, time_frame);
+kspace_combine_coil = kspace_data(:, :, :, time_frame));
 
-% Apply ifft2 to each coil and sum using the Sum of Squares method
-num_coils = size(kspace_combine_coil, 3);
-image_space = zeros(size(kspace_combine_coil, 1), size(kspace_combine_coil, 2), num_coils);
-
-for coil = 1:num_coils
-    % Center k-space data for each coil and apply ifft2
-    centered_kspace = ifftshift(kspace_combine_coil(:, :, coil));
-    image_space(:, :, coil) = fftshift(ifft2(centered_kspace));  % Use fftshift after ifft2 to center the spatial image
-end
-
-% Combine coils using Sum of Squares (SoS)
-final_image = sqrt(sum(abs(image_space).^2, 3));
+image_space = ifftshift(ifft2(ifftshift(kspace_combine_coil)));
+final_image = sqrt(sum(abs(image_space).^2, 3));  
 
 % Display the reconstructed image
 figure;
 imshow(final_image, []);
-colormap('gray');
-title('Reconstructed Image from Combined Coils');
+colormap('gray')
+title(sprintf('Reconstructed Image from Coil'));

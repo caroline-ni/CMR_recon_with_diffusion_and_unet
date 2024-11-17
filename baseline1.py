@@ -1,3 +1,4 @@
+# Load and prepare the data
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -38,11 +39,10 @@ def reverse_process(model, noisy_image, num_steps, noise_level):
         noisy_image = noisy_image - noise_level * pred_noise
     return noisy_image
 
-# Load k-space data from a .mat file and convert it to image space
 def load_and_prepare_data(file_path):
     mat_data = sio.loadmat(file_path)
     kspace_data = mat_data['kData']
-    
+
     # Convert to PyTorch tensor and complex format
     kspace_tensor = torch.from_numpy(kspace_data).float()
     if kspace_tensor.shape[-1] == 2:
@@ -50,10 +50,17 @@ def load_and_prepare_data(file_path):
     
     # Apply inverse FFT to get the image
     image_space = torch.fft.ifftn(kspace_tensor, dim=(-2, -1), norm="ortho")
-    image_magnitude = torch.abs(image_space).unsqueeze(1)  # Add channel dimension
+    image_magnitude = torch.abs(image_space)
+
+    # Select a specific slice (e.g., first phase and first coil)
+    image_magnitude = image_magnitude[:, :, 0, 0]  # Adjust indices as needed
+
+    # Add channel and batch dimensions
+    image_magnitude = image_magnitude.unsqueeze(0).unsqueeze(0)  # Shape: [1, 1, height, width]
+
     return image_magnitude
 
-# Instantiate and train the model
+# Modify the training function to work with 4D input
 def train_diffusion_model(train_data, num_epochs=100, lr=1e-4, noise_level=0.1, num_steps=5):
     model = SimpleUNet(in_channels=1, out_channels=1)
     criterion = nn.MSELoss()
@@ -83,7 +90,6 @@ train_data = load_and_prepare_data(file_path)
 
 # Train the model
 trained_model = train_diffusion_model(train_data, num_epochs=50)
-
 # Test the model with a noisy image and visualize the output
 noisy_image, _ = add_noise(train_data, noise_level=0.1)
 reconstructed_image = reverse_process(trained_model, noisy_image, num_steps=5, noise_level=0.1)
@@ -106,3 +112,5 @@ plt.title('Reconstructed Image')
 plt.axis('off')
 
 plt.show()
+
+

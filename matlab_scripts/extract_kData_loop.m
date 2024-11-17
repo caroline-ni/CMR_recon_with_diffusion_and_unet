@@ -27,8 +27,9 @@ for fileIdx = 1:length(h5Files)
         % Read k-space data
         [kData, param, acqOrder] = read_ocmr(filePath);
         
-        % Reduce kData to 5D: ['kx', 'ky', 'coil', 'phase', 'slice']
-        kData5D = kData(:, :, :, :, :, 1, :); % Keeping only 5 relevant dimensions
+        % Reduce kData to 5D: ['kx', 'ky', 'coil', 'slice', 'phase']
+        kData5D = permute(kData(:, :, :, :, :, 1, :, :), [1, 2, 4, 7, 5]);
+        % Here, permute is used to rearrange to [kx, ky, coil, slice, phase]
 
         % Save kData as a .mat file with the same base name as the .h5 file
         matFileName = fullfile(outputFolder, [fileName(1:end-3), '_5D.mat']);

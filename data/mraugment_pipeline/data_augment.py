@@ -39,108 +39,266 @@ class AugmentationPipeline:
         self.rng = np.random.RandomState()
 
     def augment_image(self, im, max_output_size=None):
-        # Trailing dims must be image height and width (for torchvision) 
-        # im = complex_channel_first(im)
-        im = im.permute(2, 3, 4, 0, 1)
+        if isinstance(im, np.ndarray):
+            im = torch.from_numpy(im).to(torch.complex128) # type os k space is complex128
 
-        for coil in range(im.shape[0]):
-                    for phase in range(im.shape[1]):
-                        for slice_idx in range(im.shape[2]):
-                            img_slice = im[coil, phase, slice_idx]
-                            # ---------------------------  
-                            # pixel preserving transforms
-                            # ---------------------------  
-                            # Horizontal flip
-                            if self.random_apply('fliph'):
-                                im = TF.hflip(im)
+        im = im.permute(2, 3, 4, 0, 1) # Result: [slice, coil, time, kx, ky]
+        # Log for single-slice data
+        if im.shape[0] == 1:
+            print("Single-slice data detected. Processing only one slice.")
 
-                            # Vertical flip 
-                            if self.random_apply('flipv'):
-                                im = TF.vflip(im)
+        for slice_idx in range(im.shape[0]): 
+            for coil in range(im.shape[1]):
+                for phase in range(im.shape[2]):
+                    img_slice = im[slice_idx, coil, phase]
 
-                            # Rotation by multiples of 90 deg 
-                            if self.random_apply('rot90'):
-                                k = self.rng.randint(1, 4)  
-                                im = torch.rot90(im, k, dims=[-2, -1])
+                    # ---------------------------  
+                    # pixel preserving transforms
+                    # ---------------------------  
+                    # Horizontal flip
+                    if self.random_apply('fliph'):
+                        img_slice = TF.hflip(img_slice)
 
-                            # Translation by integer number of pixels
-                            if self.random_apply('translation'):
-                                h, w = im.shape[-2:]
-                                t_x = self.rng.uniform(-self.hparams.aug_max_translation_x, self.hparams.aug_max_translation_x)
-                                t_x = int(t_x * h)
-                                t_y = self.rng.uniform(-self.hparams.aug_max_translation_y, self.hparams.aug_max_translation_y)
-                                t_y = int(t_y * w)
-                                
-                                pad, top, left = self._get_translate_padding_and_crop(im, (t_x, t_y))
-                                im = TF.pad(im, padding=pad, padding_mode='reflect')
-                                im = TF.crop(im, top, left, h, w)
+                    # Vertical flip 
+                    if self.random_apply('flipv'):
+                        img_slice = TF.vflip(img_slice)
 
-                            # ------------------------       
-                            # interpolating transforms
-                            # ------------------------  
-                            interp = False 
+                    # Rotation by multiples of 90 deg 
+                    if self.random_apply('rot90'):
+                        k = self.rng.randint(1, 4)  
+                        img_slice = torch.rot90(img_slice, k, dims=[-2, -1])
 
-                            # Rotation
-                            if self.random_apply('rotation'):
-                                interp = True
-                                rot = self.rng.uniform(-self.hparams.aug_max_rotation, self.hparams.aug_max_rotation)
-                            else:
-                                rot = 0.
+                    # Translation by integer number of pixels
+                    if self.random_apply('translation'):
+                        h, w = img_slice.shape[-2:]
+                        t_x = self.rng.uniform(-self.hparams.aug_max_translation_x, self.hparams.aug_max_translation_x)
+                        t_x = int(t_x * h)
+                        t_y = self.rng.uniform(-self.hparams.aug_max_translation_y, self.hparams.aug_max_translation_y)
+                        t_y = int(t_y * w)
+                        
+                        pad, top, left = self._get_translate_padding_and_crop(img_slice, (t_x, t_y))
+                        img_slice = TF.pad(img_slice, padding=pad, padding_mode='reflect')
+                        img_slice = TF.crop(img_slice, top, left, h, w)
 
-                            # Shearing
-                            if self.random_apply('shearing'):
-                                interp = True
-                                shear_x = self.rng.uniform(-self.hparams.aug_max_shearing_x, self.hparams.aug_max_shearing_x)
-                                shear_y = self.rng.uniform(-self.hparams.aug_max_shearing_y, self.hparams.aug_max_shearing_y)
-                            else:
-                                shear_x, shear_y = 0., 0.
+                    # ------------------------       
+                    # interpolating transforms
+                    # ------------------------  
+                    interp = False 
 
-                            # Scaling
-                            if self.random_apply('scaling'):
-                                interp = True
-                                scale = self.rng.uniform(1-self.hparams.aug_max_scaling, 1 + self.hparams.aug_max_scaling)
-                            else:
-                                scale = 1.
+                    # Rotation
+                    if self.random_apply('rotation'):
+                        interp = True 
+                        rot = self.rng.uniform(-self.hparams.aug_max_rotation, self.hparams.aug_max_rotation)
+                    else:
+                        rot = 0.
 
-                            # Upsample if needed
-                            upsample = interp and self.upsample_augment
-                            if upsample:
-                                upsampled_shape = [im.shape[-2] * self.upsample_factor, im.shape[-1] * self.upsample_factor]
-                                original_shape = im.shape[-2:]
-                                interpolation  = TF.InterpolationMode.BICUBIC if self.upsample_order == 3 else TF.InterpolationMode.BILINEAR
-                                im = TF.resize(im, size=upsampled_shape, interpolation=interpolation)
+                    # Shearing
+                    if self.random_apply('shearing'):
+                        interp = True
+                        shear_x = self.rng.uniform(-self.hparams.aug_max_shearing_x, self.hparams.aug_max_shearing_x)
+                        shear_y = self.rng.uniform(-self.hparams.aug_max_shearing_y, self.hparams.aug_max_shearing_y)
+                    else:
+                        shear_x, shear_y = 0., 0.
 
-                            # Apply interpolating transformations 
-                            # Affine transform - if any of the affine transforms is randomly picked
-                            if interp:
-                                h, w = im.shape[-2:]
-                                pad = self._get_affine_padding_size(im, rot, scale, (shear_x, shear_y))
-                                im = TF.pad(im, padding=pad, padding_mode='reflect')
-                                im = TF.affine(im,
-                                            angle=rot,
-                                            scale=scale,
-                                            shear=(shear_x, shear_y),
-                                            translate=[0, 0],
-                                            interpolation=TF.InterpolationMode.BILINEAR
-                                            )
-                                im = TF.center_crop(im, (h, w))
-                            
-                            # Downsampling
-                            if upsample:
-                                im = TF.resize(im, size=original_shape, interpolation=interpolation)
+                    # Scaling
+                    if self.random_apply('scaling'):
+                        interp = True
+                        scale = self.rng.uniform(1-self.hparams.aug_max_scaling, 1 + self.hparams.aug_max_scaling)
+                    else:
+                        scale = 1.
 
-                            # Update the image with the augmented slice
-                            im[coil, phase, slice_idx] = img_slice
+                    # Upsample if needed
+                    upsample = interp and self.upsample_augment
+                    if upsample:
+                        upsampled_shape = [img_slice.shape[-2] * self.upsample_factor, img_slice.shape[-1] * self.upsample_factor]
+                        original_shape = img_slice.shape[-2:]
+                        interpolation  = TF.InterpolationMode.BICUBIC if self.upsample_order == 3 else TF.InterpolationMode.BILINEAR
+                        img_slice = TF.resize(img_slice, size=upsampled_shape, interpolation=interpolation)
 
-                            if max_output_size is not None:
-                                im = crop_if_needed(im, max_output_size)
+                    # Apply interpolating transformations 
+                    # Affine transform - if any of the affine transforms is randomly picked
+                    # Apply interpolating transformations 
+                    if interp:
+                        h, w = img_slice.shape[-2:]
+                        pad = self._get_affine_padding_size(img_slice, rot, scale, (shear_x, shear_y))
+                        img_slice = TF.pad(img_slice, padding=pad, padding_mode='reflect')
+
+                        # Handle complex-valued data
+                        if torch.is_complex(img_slice):
+                            real_part = img_slice.real
+                            imag_part = img_slice.imag
+
+                            # Transform real and imaginary parts separately
+                            real_transformed = TF.affine(
+                                real_part, angle=rot, translate=[0, 0], scale=scale, shear=(shear_x, shear_y),
+                                interpolation=TF.InterpolationMode.BILINEAR
+                            )
+                            imag_transformed = TF.affine(
+                                imag_part, angle=rot, translate=[0, 0], scale=scale, shear=(shear_x, shear_y),
+                                interpolation=TF.InterpolationMode.BILINEAR
+                            )
+
+                            # Recombine into a complex tensor
+                            img_slice = torch.complex(real_transformed, imag_transformed)
+                        else:
+                            # Ensure the slice has a channel dimension
+                            if img_slice.dim() == 2:
+                                img_slice = img_slice.unsqueeze(0)  # Add channel dimension
+
+                            img_slice = TF.affine(
+                                img_slice, angle=rot, translate=[0, 0], scale=scale, shear=(shear_x, shear_y),
+                                interpolation=TF.InterpolationMode.BILINEAR
+                            )
+
+                            # Remove channel dimension if it was added
+                            if img_slice.shape[0] == 1:
+                                img_slice = img_slice.squeeze(0)
+
+                        img_slice = TF.center_crop(img_slice, (h, w))
+                    
+                    # Downsampling
+                    if upsample:
+                        img_slice = TF.resize(img_slice, size=original_shape, interpolation=interpolation)
+                        
+                    # Convert back to a complex tensor
+                    if img_slice.shape[-1] == 2:  # Check if it's 2-channel
+                        img_slice = torch.view_as_complex(img_slice)
+                    # Update the image with the augmented slice
+                    im[slice_idx, coil, phase]= img_slice
+
+                    if max_output_size is not None:
+                        im = crop_if_needed(im, max_output_size)
                     
         # Reset original channel ordering
-        #im = complex_channel_last(im)
         im = im.permute(3, 4, 0, 1, 2)
         
         return im
-    
+
+    def augment_image2(self, im, max_output_size=None):
+        """
+        Applies augmentations to MRI data. Handles complex tensors and supports various transformations.
+
+        Parameters:
+        - im (torch.Tensor or np.ndarray): Input k-space data (expected shape [kx, ky, slice, coil, time]).
+        - max_output_size (tuple): Maximum output dimensions (optional).
+
+        Returns:
+        - torch.Tensor: Augmented data with original dimensions [kx, ky, slice, coil, time].
+        """
+        if isinstance(im, np.ndarray):
+            im = torch.from_numpy(im).to(torch.complex128)  # Convert to PyTorch tensor
+
+        print(f"Initial im shape: {im.shape}")  # Debug log
+
+        # Reorder dimensions: [kx, ky, slice, coil, time] -> [slice, coil, time, kx, ky]
+        im = im.permute(2, 3, 4, 0, 1)
+
+        if im.shape[0] == 1:
+            print("Single-slice data detected. Processing only one slice.")  # Log single-slice case
+
+        for slice_idx in range(im.shape[0]):  # Iterate over slices
+            for coil in range(im.shape[1]):  # Iterate over coils
+                for phase in range(im.shape[2]):  # Iterate over time frames
+
+                    img_slice = im[slice_idx, coil, phase]  # Extract the slice
+                    print("hello")
+                    # Convert complex tensor to a 2-channel real tensor
+                    if torch.is_complex(img_slice):
+                        img_slice = torch.view_as_real(img_slice)  # Shape: [H, W, 2]
+                    print(f"After view_as_real: {img_slice.shape}")
+
+                    # ---------------------------
+                    # Pixel-preserving transforms
+                    # ---------------------------
+                    if self.random_apply('fliph'):
+                        img_slice = TF.hflip(img_slice)
+                    if self.random_apply('flipv'):
+                        img_slice = TF.vflip(img_slice)
+                    if self.random_apply('rot90'):
+                        k = self.rng.randint(1, 4)  # Random 90° rotations
+                        img_slice = torch.rot90(img_slice, k, dims=[-3, -2])  # Handle last two spatial dims
+
+                    # Translation
+                    if self.random_apply('translation'):
+                        h, w = img_slice.shape[-3:-1]
+                        t_x = int(self.rng.uniform(-self.hparams.aug_max_translation_x, self.hparams.aug_max_translation_x) * h)
+                        t_y = int(self.rng.uniform(-self.hparams.aug_max_translation_y, self.hparams.aug_max_translation_y) * w)
+                        pad, top, left = self._get_translate_padding_and_crop(img_slice, (t_x, t_y))
+                        img_slice = TF.pad(img_slice, padding=pad, padding_mode='reflect')
+                        img_slice = TF.crop(img_slice, top, left, h, w)
+
+                    # ---------------------------
+                    # Interpolating transforms
+                    # ---------------------------
+                    interp = False
+                    rot, shear_x, shear_y, scale = 0.0, 0.0, 0.0, 1.0
+
+                    if self.random_apply('rotation'):
+                        interp = True
+                        rot = self.rng.uniform(-self.hparams.aug_max_rotation, self.hparams.aug_max_rotation)
+                    if self.random_apply('shearing'):
+                        interp = True
+                        shear_x = self.rng.uniform(-self.hparams.aug_max_shearing_x, self.hparams.aug_max_shearing_x)
+                        shear_y = self.rng.uniform(-self.hparams.aug_max_shearing_y, self.hparams.aug_max_shearing_y)
+                    if self.random_apply('scaling'):
+                        interp = True
+                        scale = self.rng.uniform(1 - self.hparams.aug_max_scaling, 1 + self.hparams.aug_max_scaling)
+
+                    if interp:
+                        # Convert to channel-first format
+                        img_slice = img_slice.permute(2, 0, 1)  # [H, W, 2] -> [2, H, W]
+
+                        # Get original shape dynamically
+                        original_shape = img_slice.shape[-2:]  # (H, W)
+                        print(f"Original shape: {original_shape}")
+
+                        # Apply padding and affine transformation
+                        pad = self._get_affine_padding_size(img_slice, rot, scale=scale, shear=(shear_x, shear_y))
+                        img_slice = TF.pad(img_slice, padding=pad, padding_mode='reflect')
+                        img_slice = TF.affine(
+                            img_slice, angle=rot, translate=[0, 0], scale=scale, shear=(shear_x, shear_y),
+                            interpolation=TF.InterpolationMode.BILINEAR
+                        )
+                        print(f"Shape after affine: {img_slice.shape}")
+
+                        # Resize back to original dimensions
+                        img_slice = torch.nn.functional.interpolate(
+                            img_slice.unsqueeze(0), size=original_shape, mode="bilinear", align_corners=False
+                        ).squeeze(0)
+                        print(f"After resizing: {img_slice.shape}")
+                        # Convert back to channel-last format
+                        img_slice = img_slice.permute(1, 2, 0)
+                        print(f"After resizing and permute: {img_slice.shape}")
+
+                    # Optional upsampling
+                    if interp and self.upsample_augment:
+                        original_shape = img_slice.shape[:2]
+                        img_slice = TF.resize(img_slice, size=[dim * self.upsample_factor for dim in original_shape])
+
+                                        # Optional downsampling
+                    if interp and self.upsample_augment:
+                        img_slice = TF.resize(img_slice, size=original_shape)
+
+                    # Convert back to a complex tensor
+                    if img_slice.shape[-1] == 2:  # Check if it's 2-channel
+                        img_slice = img_slice.contiguous()  # Ensure proper memory layout
+                        img_slice = torch.view_as_complex(img_slice)
+
+                    print(f"After view_as_complex: {img_slice.shape}")
+
+                    # Update the augmented slice
+                    im[slice_idx, coil, phase] = img_slice
+
+                    # Apply cropping if needed
+                    if max_output_size is not None:
+                        im = crop_if_needed(im, max_output_size)
+
+        # Restore original dimensions: [slice, coil, time, kx, ky] -> [kx, ky, slice, coil, time]
+        im = im.permute(3, 4, 0, 1, 2)
+        print(f"Final im shape: {im.shape}")
+
+        return im
+
     def augment_from_kspace(self, kspace, target_size, max_train_size=None):       
         im = ifft2c(kspace) 
         im = self.augment_image(im, max_output_size=max_train_size)
@@ -194,7 +352,7 @@ class AugmentationPipeline:
         px = torch.clip(torch.floor((bounding_box[0] - h) / 2), min=0.0, max=h-1) 
         py = torch.clip(torch.floor((bounding_box[1] - w) / 2),  min=0.0, max=w-1)
         return int(py.item()), int(px.item())
-
+    
     @staticmethod
     def _get_translate_padding_and_crop(im, translation):
         t_x, t_y = translation
@@ -214,7 +372,7 @@ class AugmentationPipeline:
             left = pad[2]
         return pad, top, left
 
-            
+
 class DataAugmentor:
     """
     High-level class encompassing the augmentation pipeline and augmentation
